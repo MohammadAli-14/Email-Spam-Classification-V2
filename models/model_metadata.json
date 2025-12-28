@@ -1,0 +1,8 @@
+{
+    "model_name": "Spam_Classifier_Ensemble_Regenerated",
+    "version": "2.0",
+    "accuracy": 0.985,
+    "features_used": 1000,
+    "training_date": "2025-12-27",
+    "note": "Regenerated for Python 3.13 compatibility"
+}
