@@ -1,22 +1,13 @@
-"""
-app.py - Streamlit web application for email spam classification
-Clean, minimal dark theme UI
-"""
-
 import streamlit as st
 import pandas as pd
 import sys
 import os
 from datetime import datetime
-import json
 
-# Add src to path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-
 from src.predictor import SpamPredictor
-from src.preprocessing import TextPreprocessor
 
-# Page configuration
+# Page config
 st.set_page_config(
     page_title="Email Spam Classifier",
     page_icon="📧",
@@ -24,593 +15,500 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Initialize session state
-if 'predictor' not in st.session_state:
-    st.session_state.predictor = None
-if 'preprocessor' not in st.session_state:
-    st.session_state.preprocessor = None
-if 'results' not in st.session_state:
-    st.session_state.results = []
-if 'current_model' not in st.session_state:
-    st.session_state.current_model = "ensemble"
-if 'model_changed' not in st.session_state:
-    st.session_state.model_changed = False
+# Session state
+for key, default in [
+    ('predictor', None), ('results', []), 
+    ('current_model', 'ensemble'), ('model_changed', False)
+]:
+    if key not in st.session_state:
+        st.session_state[key] = default
 
 
-def apply_dark_theme():
-    """Apply clean dark theme CSS"""
+def load_css():
+    """Load enhanced CSS for dark theme"""
     st.markdown("""
     <style>
-        /* Base dark theme */
-        .stApp {
-            background-color: #0d1117;
-            color: #c9d1d9;
-        }
-        
-        /* Sidebar */
-        section[data-testid="stSidebar"] {
-            background-color: #161b22 !important;
-            border-right: 1px solid #30363d;
-        }
-        
-        section[data-testid="stSidebar"] * {
-            color: #c9d1d9 !important;
-        }
-        
-        /* Headers */
-        h1, h2, h3, h4, h5, h6 {
-            color: #f0f6fc !important;
-        }
-        
-        /* Text */
-        p, span, label, div {
-            color: #c9d1d9;
-        }
-        
-        /* Input fields */
-        .stTextInput > div > div > input,
-        .stTextArea > div > div > textarea {
-            background-color: #21262d !important;
-            color: #c9d1d9 !important;
-            border: 1px solid #30363d !important;
-            border-radius: 6px !important;
-        }
-        
-        .stTextInput > div > div > input:focus,
-        .stTextArea > div > div > textarea:focus {
-            border-color: #58a6ff !important;
-            box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.15) !important;
-        }
-        
-        /* Select boxes */
-        .stSelectbox > div > div {
-            background-color: #21262d !important;
-            border: 1px solid #30363d !important;
-            border-radius: 6px !important;
-        }
-        
-        .stSelectbox > div > div > div {
-            color: #c9d1d9 !important;
-        }
-        
-        /* Dropdown menus */
-        div[data-baseweb="popover"] {
-            background-color: #21262d !important;
-            border: 1px solid #30363d !important;
-        }
-        
-        div[data-baseweb="popover"] * {
-            background-color: #21262d !important;
-            color: #c9d1d9 !important;
-        }
-        
-        li[data-baseweb="option"]:hover {
-            background-color: #30363d !important;
-        }
-        
-        /* Buttons */
-        .stButton > button {
-            background-color: #238636 !important;
-            color: #ffffff !important;
-            border: 1px solid #238636 !important;
-            border-radius: 6px !important;
-            font-weight: 600 !important;
-            transition: background-color 0.2s !important;
-        }
-        
-        .stButton > button:hover {
-            background-color: #2ea043 !important;
-            border-color: #2ea043 !important;
-        }
-        
-        .stButton > button[kind="secondary"] {
-            background-color: #21262d !important;
-            border-color: #30363d !important;
-            color: #c9d1d9 !important;
-        }
-        
-        .stButton > button[kind="secondary"]:hover {
-            background-color: #30363d !important;
-        }
-        
-        /* Metrics */
-        div[data-testid="stMetric"] {
-            background-color: #161b22 !important;
-            border: 1px solid #30363d !important;
-            border-radius: 6px !important;
-            padding: 1rem !important;
-        }
-        
-        div[data-testid="stMetricValue"] {
-            color: #f0f6fc !important;
-        }
-        
-        div[data-testid="stMetricLabel"] {
-            color: #8b949e !important;
-        }
-        
-        /* File uploader */
-        div[data-testid="stFileUploadDropzone"] {
-            background-color: #21262d !important;
-            border: 1px dashed #30363d !important;
-            border-radius: 6px !important;
-        }
-        
-        div[data-testid="stFileUploadDropzone"] * {
-            color: #8b949e !important;
-        }
-        
-        /* Tabs */
-        .stTabs [data-baseweb="tab-list"] {
-            background-color: #161b22;
-            border-radius: 6px;
-            padding: 4px;
-            gap: 4px;
-        }
-        
-        .stTabs [data-baseweb="tab"] {
-            background-color: transparent;
-            color: #8b949e;
-            border-radius: 4px;
-            padding: 8px 16px;
-        }
-        
-        .stTabs [data-baseweb="tab"]:hover {
-            background-color: #21262d;
-            color: #c9d1d9;
-        }
-        
-        .stTabs [data-baseweb="tab"][aria-selected="true"] {
-            background-color: #21262d;
-            color: #f0f6fc;
-        }
-        
-        /* Dataframes */
-        .dataframe {
-            background-color: #161b22 !important;
-        }
-        
-        .dataframe th {
-            background-color: #21262d !important;
-            color: #f0f6fc !important;
-        }
-        
-        .dataframe td {
-            color: #c9d1d9 !important;
-            border-color: #30363d !important;
-        }
-        
-        /* Expander */
-        .streamlit-expanderHeader {
-            background-color: #21262d !important;
-            border: 1px solid #30363d !important;
-            border-radius: 6px !important;
-            color: #c9d1d9 !important;
-        }
-        
-        .streamlit-expanderContent {
-            background-color: #161b22 !important;
-            border: 1px solid #30363d !important;
-            border-top: none !important;
-        }
-        
-        /* Alerts */
-        .stSuccess {
-            background-color: rgba(35, 134, 54, 0.15) !important;
-            border: 1px solid #238636 !important;
-            color: #3fb950 !important;
-        }
-        
-        .stError {
-            background-color: rgba(248, 81, 73, 0.15) !important;
-            border: 1px solid #f85149 !important;
-            color: #f85149 !important;
-        }
-        
-        .stWarning {
-            background-color: rgba(210, 153, 34, 0.15) !important;
-            border: 1px solid #d29922 !important;
-            color: #d29922 !important;
-        }
-        
-        .stInfo {
-            background-color: rgba(88, 166, 255, 0.15) !important;
-            border: 1px solid #58a6ff !important;
-            color: #58a6ff !important;
-        }
-        
-        /* Dividers */
-        hr {
-            border-color: #30363d;
-        }
-        
-        /* Result cards */
-        .result-card {
-            background-color: #161b22;
-            border: 1px solid #30363d;
-            border-radius: 8px;
-            padding: 1.5rem;
-            margin: 1rem 0;
-        }
-        
-        .spam-result {
-            border-left: 4px solid #f85149;
-        }
-        
-        .ham-result {
-            border-left: 4px solid #3fb950;
-        }
-        
-        /* Stats grid */
-        .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-            gap: 1rem;
-            margin: 1rem 0;
-        }
-        
-        .stat-box {
-            background-color: #21262d;
-            border: 1px solid #30363d;
-            border-radius: 6px;
-            padding: 1rem;
-            text-align: center;
-        }
-        
-        .stat-label {
-            color: #8b949e;
-            font-size: 0.85rem;
-            margin-bottom: 0.25rem;
-        }
-        
-        .stat-value {
-            color: #f0f6fc;
-            font-size: 1.5rem;
-            font-weight: 600;
-        }
-        
-        /* Hide default streamlit elements */
-        #MainMenu {visibility: hidden;}
-        footer {visibility: hidden;}
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+    
+    /* Base styling */
+    .stApp {
+        font-family: 'Inter', sans-serif;
+    }
+    
+    /* Hide header */
+    .stApp > header {
+        display: none !important;
+    }
+    
+    /* Custom header */
+    .custom-header {
+        text-align: center;
+        padding: 2rem 1rem;
+        margin-bottom: 2rem;
+        border-bottom: 3px solid #238636;
+    }
+    
+    .custom-title {
+        font-size: 3rem;
+        font-weight: 800;
+        background: linear-gradient(135deg, #58a6ff, #3fb950);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        margin-bottom: 0.5rem;
+    }
+    
+    .custom-subtitle {
+        font-size: 1.2rem;
+        color: #8b949e;
+    }
+    
+    /* Enhanced buttons */
+    .stButton > button {
+        background: linear-gradient(135deg, #238636, #2ea043) !important;
+        border: none !important;
+        border-radius: 8px !important;
+        font-weight: 600 !important;
+        transition: all 0.3s ease !important;
+    }
+    
+    .stButton > button:hover {
+        transform: translateY(-2px) !important;
+        box-shadow: 0 6px 20px rgba(35, 134, 54, 0.4) !important;
+    }
+    
+    /* Enhanced metrics */
+    [data-testid="stMetric"] {
+        background: linear-gradient(135deg, #161b22, #21262d);
+        border: 1px solid #30363d;
+        border-radius: 12px;
+        padding: 1rem;
+    }
+    
+    [data-testid="stMetricValue"] {
+        font-size: 2rem;
+        font-weight: 700;
+        color: #f0f6fc;
+    }
+    
+    /* Enhanced tabs */
+    .stTabs [data-baseweb="tab-list"] {
+        background: #161b22;
+        border-radius: 12px;
+        padding: 8px;
+        gap: 8px;
+    }
+    
+    .stTabs [data-baseweb="tab"] {
+        border-radius: 8px;
+        color: #8b949e;
+    }
+    
+    .stTabs [data-baseweb="tab"][aria-selected="true"] {
+        background: linear-gradient(135deg, #238636, #2ea043) !important;
+        color: white !important;
+        font-weight: 600;
+    }
+    
+    /* Enhanced cards */
+    .result-card {
+        background: linear-gradient(135deg, #161b22, #21262d);
+        border-radius: 12px;
+        padding: 1.5rem;
+        margin: 1rem 0;
+        border-left: 4px solid #238636;
+    }
+    
+    .result-card.spam {
+        border-left-color: #f85149;
+    }
+    
+    .result-card.ham {
+        border-left-color: #3fb950;
+    }
+    
+    /* Status badge */
+    .status-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 16px;
+        border-radius: 20px;
+        font-weight: 500;
+    }
+    
+    .status-badge.success {
+        background: rgba(46, 160, 67, 0.15);
+        color: #3fb950;
+        border: 1px solid #3fb950;
+    }
+    
+    .status-badge.error {
+        background: rgba(248, 81, 73, 0.15);
+        color: #f85149;
+        border: 1px solid #f85149;
+    }
+    
+    /* Sidebar styling */
+    section[data-testid="stSidebar"] {
+        border-right: 2px solid #238636;
+    }
+    
+    section[data-testid="stSidebar"] .stMarkdown h2 {
+        color: #f0f6fc;
+        font-weight: 700;
+    }
+    
+    section[data-testid="stSidebar"] .stMarkdown h3 {
+        color: #58a6ff;
+        font-weight: 600;
+        font-size: 1rem;
+    }
+    
+    /* File uploader */
+    [data-testid="stFileUploadDropzone"] {
+        background: #161b22 !important;
+        border: 2px dashed #30363d !important;
+        border-radius: 12px !important;
+    }
+    
+    [data-testid="stFileUploadDropzone"]:hover {
+        border-color: #238636 !important;
+    }
+    
+    /* Hide default menu */
+    #MainMenu {
+        visibility: hidden;
+    }
+    
+    footer {
+        visibility: hidden;
+    }
+    
+    /* Headers */
+    h1, h2, h3, h4, h5, h6 {
+        color: #f0f6fc !important;
+    }
+    
+    /* Text inputs */
+    .stTextInput input, .stTextArea textarea {
+        background-color: #161b22 !important;
+        border: 1px solid #30363d !important;
+        border-radius: 8px !important;
+    }
+    
+    .stTextInput input:focus, .stTextArea textarea:focus {
+        border-color: #58a6ff !important;
+        box-shadow: 0 0 0 2px rgba(88, 166, 255, 0.2) !important;
+    }
+    
+    /* Select boxes */
+    .stSelectbox > div > div {
+        background-color: #161b22 !important;
+        border: 1px solid #30363d !important;
+        border-radius: 8px !important;
+    }
+    
+    /* Dataframes */
+    .dataframe {
+        background-color: #161b22 !important;
+    }
+    
+    .dataframe th {
+        background-color: #21262d !important;
+        color: #f0f6fc !important;
+    }
+    
+    .dataframe td {
+        color: #c9d1d9 !important;
+        border-color: #30363d !important;
+    }
     </style>
     """, unsafe_allow_html=True)
 
 
-def initialize_models():
-    """Initialize models once and cache them"""
+def init_models():
+    """Initialize ML models"""
     if st.session_state.predictor is None or st.session_state.model_changed:
-        with st.spinner("Loading model..."):
+        with st.spinner("🤖 Loading models..."):
             try:
-                st.session_state.predictor = SpamPredictor(model_type=st.session_state.current_model)
-                st.session_state.preprocessor = TextPreprocessor()
+                st.session_state.predictor = SpamPredictor(
+                    model_type=st.session_state.current_model
+                )
                 st.session_state.model_changed = False
             except Exception as e:
-                st.error(f"Error loading models: {e}")
+                st.error(f"❌ Error loading models: {e}")
                 st.session_state.predictor = None
 
 
 def main():
-    # Apply theme
-    apply_dark_theme()
-    
-    # Initialize models
-    initialize_models()
+    load_css()
+    init_models()
     
     # Header
-    st.title("📧 Email Spam Classifier")
-    st.caption("AI-powered spam detection with 97.12% accuracy")
+    st.markdown("""
+    <div class="custom-header">
+        <h1 class="custom-title">📧 Email Spam Classifier</h1>
+        <p class="custom-subtitle">✨ AI-powered spam detection with 97.12% accuracy</p>
+    </div>
+    """, unsafe_allow_html=True)
     
     if st.session_state.predictor is None:
-        st.error("Failed to initialize models. Please check if model files exist.")
+        st.error("❌ Failed to initialize models. Please check model files.")
         return
     
     # Sidebar
     with st.sidebar:
-        st.header("⚙️ Settings")
+        st.markdown("### ⚙️ Settings")
         
-        # Model selection
-        st.subheader("Model")
-        
-        model_map = {
-            "Ensemble (97.12%)": "ensemble",
-            "Pipeline (96.85%)": "pipeline", 
-            "Random Forest (96.50%)": "rf"
+        st.markdown("#### 🤖 Model Selection")
+        models = {
+            "🏆 Ensemble (97.12%)": "ensemble",
+            "⚡ Pipeline (96.85%)": "pipeline",
+            "🎯 Random Forest (96.50%)": "rf"
         }
         
-        current_display = next(
-            (name for name, key in model_map.items() if key == st.session_state.current_model),
-            "Ensemble (97.12%)"
-        )
+        current = next((k for k, v in models.items() 
+                       if v == st.session_state.current_model), 
+                      "🏆 Ensemble (97.12%)")
         
-        model_choice = st.selectbox(
-            "Select model:",
-            options=list(model_map.keys()),
-            index=list(model_map.keys()).index(current_display),
-            label_visibility="collapsed"
-        )
+        choice = st.selectbox("Model", list(models.keys()), 
+                            index=list(models.keys()).index(current),
+                            label_visibility="collapsed")
         
-        if model_map[model_choice] != st.session_state.current_model:
-            st.session_state.current_model = model_map[model_choice]
+        if models[choice] != st.session_state.current_model:
+            st.session_state.current_model = models[choice]
             st.session_state.model_changed = True
             st.rerun()
         
         st.divider()
         
-        # Model info
-        st.subheader("📊 Model Info")
+        # Model stats
+        st.markdown("#### 📊 Model Performance")
         try:
-            model_info = st.session_state.predictor.get_model_info()
-            col1, col2 = st.columns(2)
-            with col1:
-                st.metric("Accuracy", f"{model_info.get('accuracy', 0.9712)*100:.1f}%")
-            with col2:
-                st.metric("Features", model_info.get('features', '576'))
+            info = st.session_state.predictor.get_model_info()
+            c1, c2 = st.columns(2)
+            with c1:
+                st.metric("Accuracy", f"{info.get('accuracy', 0.9712)*100:.1f}%")
+            with c2:
+                st.metric("Features", info.get('features', '576'))
         except:
-            col1, col2 = st.columns(2)
-            with col1:
+            c1, c2 = st.columns(2)
+            with c1:
                 st.metric("Accuracy", "97.1%")
-            with col2:
+            with c2:
                 st.metric("Features", "576")
         
         st.divider()
         
-        # History actions
-        st.subheader("📚 History")
-        st.write(f"**{len(st.session_state.results)}** emails analyzed")
+        st.markdown("#### 📚 Analysis History")
+        st.markdown(f"**{len(st.session_state.results)}** emails analyzed")
         
         if st.button("🗑️ Clear History", use_container_width=True):
             st.session_state.results = []
-            st.success("History cleared!")
+            st.success("✅ History cleared!")
             st.rerun()
     
-    # Main content - Tabs
+    # Main content
     tab1, tab2, tab3 = st.tabs(["📝 Analyze", "📁 Batch", "📚 History"])
     
-    # Tab 1: Single Email Analysis
+    # Tab 1: Single Analysis
     with tab1:
-        st.subheader("Analyze Email")
+        st.markdown("### 🔍 Analyze Email")
         
         col1, col2 = st.columns([3, 1])
         
         with col1:
-            email_input = st.text_area(
+            email_text = st.text_area(
                 "Email Content",
                 height=250,
-                placeholder="Paste the email content here...",
+                placeholder="Paste email content here...",
                 label_visibility="collapsed"
             )
+            
+            # Analyze button - now directly below the text area
+            if st.button("🔍 Analyze Email", type="primary", use_container_width=True):
+                if email_text.strip():
+                    with st.spinner("🤖 Analyzing..."):
+                        try:
+                            result = st.session_state.predictor.predict_from_text(email_text)
+                            
+                            # Store result
+                            st.session_state.results.append({
+                                'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                                'preview': email_text[:80] + "..." if len(email_text) > 80 else email_text,
+                                'prediction': result['prediction'],
+                                'spam_prob': result['spam_probability'],
+                                'ham_prob': result['ham_probability'],
+                                'confidence': result['confidence'],
+                                'is_spam': result['is_spam']
+                            })
+                            
+                            st.divider()
+                            
+                            # Result display
+                            if result['is_spam']:
+                                st.markdown("""
+                                <div class="result-card spam">
+                                    <h3 style="color: #f85149; margin: 0;">🚨 SPAM DETECTED</h3>
+                                    <p style="color: #8b949e; margin: 0.5rem 0;">This email shows spam characteristics</p>
+                                </div>
+                                """, unsafe_allow_html=True)
+                                st.error("⚠️ This email is classified as **SPAM**")
+                            else:
+                                st.markdown("""
+                                <div class="result-card ham">
+                                    <h3 style="color: #3fb950; margin: 0;">✅ LEGITIMATE EMAIL</h3>
+                                    <p style="color: #8b949e; margin: 0.5rem 0;">This email appears legitimate</p>
+                                </div>
+                                """, unsafe_allow_html=True)
+                                st.success("✅ This email is classified as **HAM**")
+                            
+                            # Stats
+                            c1, c2, c3 = st.columns(3)
+                            with c1:
+                                st.metric("Spam Probability", f"{result['spam_probability']:.1%}")
+                            with c2:
+                                st.metric("Ham Probability", f"{result['ham_probability']:.1%}")
+                            with c3:
+                                st.metric("Confidence", result['confidence'])
+                            
+                        except Exception as e:
+                            st.error(f"❌ Error: {str(e)}")
+                else:
+                    st.warning("⚠️ Please enter email content to analyze")
         
         with col2:
-            st.markdown("**Quick Templates**")
+            st.markdown("#### 📋 Templates")
             
             templates = {
-                "Spam Example": """URGENT: Your account needs verification!
-                
-Click here immediately to verify your PayPal account or it will be suspended.
-
-http://fake-verify.com
-
-Act now!""",
-                "Ham Example": """Hi Team,
-
-Here's the agenda for tomorrow's meeting:
+                "🚨 Spam Example": """URGENT: Account verification required!
+Click here now: http://fake-site.com
+Your account will be suspended!""",
+                "✅ Ham Example": """Hi Team,
+Meeting agenda for tomorrow:
 1. Project updates
 2. Q4 planning
-3. Team assignments
-
-Best regards,
-John"""
+Best, John"""
             }
             
-            selected = st.selectbox("Choose:", list(templates.keys()), label_visibility="collapsed")
+            template = st.selectbox("Template", list(templates.keys()),
+                                  label_visibility="collapsed")
             
-            if st.button("Load Template", use_container_width=True):
-                st.session_state.template_text = templates[selected]
+            if st.button("📥 Load", use_container_width=True):
+                st.session_state.loaded_template = templates[template]
                 st.rerun()
             
             st.divider()
             
-            uploaded = st.file_uploader("Upload .txt", type=['txt'], label_visibility="collapsed")
+            uploaded = st.file_uploader("📁 Upload .txt", type=['txt'],
+                                        label_visibility="collapsed")
             if uploaded:
-                email_input = uploaded.read().decode("utf-8")
+                email_text = uploaded.read().decode("utf-8")
         
-        # Check for template
-        if 'template_text' in st.session_state:
-            email_input = st.session_state.template_text
-            del st.session_state.template_text
-        
-        # Analyze button
-        if st.button("🔍 Analyze Email", type="primary", use_container_width=True):
-            if email_input and email_input.strip():
-                with st.spinner("Analyzing..."):
-                    try:
-                        result = st.session_state.predictor.predict_from_text(email_input)
-                        
-                        # Store result
-                        st.session_state.results.append({
-                            'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                            'preview': email_input[:80] + "..." if len(email_input) > 80 else email_input,
-                            'prediction': result['prediction'],
-                            'spam_prob': result['spam_probability'],
-                            'ham_prob': result['ham_probability'],
-                            'confidence': result['confidence'],
-                            'is_spam': result['is_spam']
-                        })
-                        
-                        # Display result
-                        st.divider()
-                        
-                        if result['is_spam']:
-                            st.markdown("""
-                            <div class="result-card spam-result">
-                                <h3 style="color: #f85149; margin: 0;">🚨 SPAM DETECTED</h3>
-                            </div>
-                            """, unsafe_allow_html=True)
-                            
-                            st.error("This email is classified as **SPAM**")
-                        else:
-                            st.markdown("""
-                            <div class="result-card ham-result">
-                                <h3 style="color: #3fb950; margin: 0;">✅ LEGITIMATE EMAIL</h3>
-                            </div>
-                            """, unsafe_allow_html=True)
-                            
-                            st.success("This email is classified as **HAM** (legitimate)")
-                        
-                        # Stats
-                        col1, col2, col3 = st.columns(3)
-                        with col1:
-                            st.metric("Spam Probability", f"{result['spam_probability']:.1%}")
-                        with col2:
-                            st.metric("Ham Probability", f"{result['ham_probability']:.1%}")
-                        with col3:
-                            st.metric("Confidence", result['confidence'])
-                        
-                    except Exception as e:
-                        st.error(f"Error: {str(e)}")
-            else:
-                st.warning("Please enter email content to analyze.")
+        # Check for loaded template
+        if 'loaded_template' in st.session_state:
+            st.warning("⚠️ Template loaded! Switch to the Analyze tab to view it.")
     
-    # Tab 2: Batch Processing
+    # Tab 2: Batch
     with tab2:
-        st.subheader("Batch Processing")
-        st.caption("Enter multiple emails separated by empty lines")
+        st.markdown("### 📁 Batch Processing")
+        st.caption("Enter multiple emails separated by blank lines")
         
-        batch_input = st.text_area(
-            "Batch Email Content",
+        batch_text = st.text_area(
+            "Batch Input",
             height=300,
-            placeholder="Email 1 content...\n\nEmail 2 content...\n\nEmail 3 content...",
+            placeholder="Email 1...\n\nEmail 2...\n\nEmail 3...",
             label_visibility="collapsed"
         )
         
-        col1, col2 = st.columns([2, 1])
-        with col1:
-            if st.button("🚀 Process Batch", type="primary", use_container_width=True):
-                if batch_input and batch_input.strip():
-                    emails = [e.strip() for e in batch_input.split('\n\n') if e.strip()]
+        if st.button("🚀 Process Batch", type="primary", use_container_width=True):
+            if batch_text.strip():
+                emails = [e.strip() for e in batch_text.split('\n\n') if e.strip()]
+                
+                if emails:
+                    progress = st.progress(0)
+                    results = []
                     
-                    if emails:
-                        progress = st.progress(0)
-                        results = []
-                        
-                        for i, email in enumerate(emails):
-                            try:
-                                result = st.session_state.predictor.predict_from_text(email)
-                                results.append({
-                                    '#': i + 1,
-                                    'Preview': email[:50] + "..." if len(email) > 50 else email,
-                                    'Result': result['prediction'],
-                                    'Spam %': f"{result['spam_probability']:.1%}",
-                                    'Confidence': result['confidence']
-                                })
-                            except:
-                                results.append({
-                                    '#': i + 1,
-                                    'Preview': "Error",
-                                    'Result': "ERROR",
-                                    'Spam %': "-",
-                                    'Confidence': "-"
-                                })
-                            progress.progress((i + 1) / len(emails))
-                        
-                        progress.empty()
-                        
-                        # Summary
-                        spam_count = sum(1 for r in results if r['Result'] == 'SPAM')
-                        col1, col2, col3 = st.columns(3)
-                        with col1:
-                            st.metric("Total", len(results))
-                        with col2:
-                            st.metric("Spam", spam_count)
-                        with col3:
-                            st.metric("Ham", len(results) - spam_count)
-                        
-                        # Results table
-                        st.dataframe(pd.DataFrame(results), use_container_width=True)
-                        
-                        # Export
-                        csv = pd.DataFrame(results).to_csv(index=False)
-                        st.download_button(
-                            "📥 Download CSV",
-                            csv,
-                            f"batch_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                            "text/csv",
-                            use_container_width=True
-                        )
-                    else:
-                        st.warning("No valid emails found.")
+                    for i, email in enumerate(emails):
+                        try:
+                            r = st.session_state.predictor.predict_from_text(email)
+                            results.append({
+                                '#': i + 1,
+                                'Preview': email[:50] + "..." if len(email) > 50 else email,
+                                'Result': r['prediction'],
+                                'Spam %': f"{r['spam_probability']:.1%}",
+                                'Confidence': r['confidence']
+                            })
+                        except:
+                            results.append({
+                                '#': i + 1, 'Preview': "Error", 'Result': "ERROR",
+                                'Spam %': "-", 'Confidence': "-"
+                            })
+                        progress.progress((i + 1) / len(emails))
+                    
+                    progress.empty()
+                    
+                    # Summary
+                    spam_count = sum(1 for r in results if r['Result'] == 'SPAM')
+                    c1, c2, c3 = st.columns(3)
+                    with c1:
+                        st.metric("Total", len(results))
+                    with c2:
+                        st.metric("Spam", spam_count)
+                    with c3:
+                        st.metric("Ham", len(results) - spam_count)
+                    
+                    st.dataframe(pd.DataFrame(results), use_container_width=True)
+                    
+                    # Export
+                    csv = pd.DataFrame(results).to_csv(index=False)
+                    st.download_button(
+                        "📥 Download CSV",
+                        csv,
+                        f"batch_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                        "text/csv",
+                        use_container_width=True
+                    )
                 else:
-                    st.warning("Please enter emails to process.")
-        
-        with col2:
-            uploaded_batch = st.file_uploader("Upload file", type=['txt', 'csv'], key="batch_upload")
-            if uploaded_batch:
-                try:
-                    content = uploaded_batch.read().decode("utf-8")
-                    st.info(f"Loaded {len(content.split(chr(10)+chr(10)))} emails")
-                except:
-                    st.error("Error reading file")
+                    st.warning("⚠️ No valid emails found")
+            else:
+                st.warning("⚠️ Please enter emails to process")
     
     # Tab 3: History
     with tab3:
-        st.subheader("Analysis History")
+        st.markdown("### 📚 Analysis History")
         
         if st.session_state.results:
             df = pd.DataFrame(st.session_state.results)
             
-            # Summary stats
-            total = len(df)
-            spam = df['is_spam'].sum()
-            ham = total - spam
-            
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.metric("Total Analyzed", total)
-            with col2:
+            total, spam = len(df), df['is_spam'].sum()
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                st.metric("Total", total)
+            with c2:
                 st.metric("Spam", spam)
-            with col3:
-                st.metric("Ham", ham)
+            with c3:
+                st.metric("Ham", total - spam)
             
             st.divider()
             
             # Filter
-            filter_type = st.selectbox("Filter:", ['All', 'SPAM', 'HAM'], label_visibility="collapsed")
+            filter_opt = st.selectbox("Filter", ['All', 'SPAM', 'HAM'])
             
-            display_df = df.copy()
-            if filter_type == 'SPAM':
-                display_df = display_df[display_df['is_spam'] == True]
-            elif filter_type == 'HAM':
-                display_df = display_df[display_df['is_spam'] == False]
+            display = df.copy()
+            if filter_opt == 'SPAM':
+                display = display[display['is_spam'] == True]
+            elif filter_opt == 'HAM':
+                display = display[display['is_spam'] == False]
             
-            # Display
-            display_df = display_df[['timestamp', 'preview', 'prediction', 'confidence']].copy()
-            display_df.columns = ['Time', 'Preview', 'Result', 'Confidence']
-            display_df = display_df.sort_values('Time', ascending=False)
+            display = display[['timestamp', 'preview', 'prediction', 'confidence']].copy()
+            display.columns = ['Time', 'Preview', 'Result', 'Confidence']
+            display = display.sort_values('Time', ascending=False)
             
-            st.dataframe(display_df, use_container_width=True, height=400)
+            st.dataframe(display, use_container_width=True, height=400)
             
             # Export
-            csv = display_df.to_csv(index=False)
+            csv = display.to_csv(index=False)
             st.download_button(
                 "📥 Export History",
                 csv,
@@ -619,11 +517,11 @@ John"""
                 use_container_width=True
             )
         else:
-            st.info("No analysis history yet. Start by analyzing some emails!")
+            st.info("📝 No history yet. Analyze some emails first!")
     
     # Footer
     st.divider()
-    st.caption(f"📧 Email Spam Classifier • Model: {model_choice} • {len(st.session_state.results)} emails analyzed")
+    st.caption(f"📧 Email Spam Classifier • Model: {choice} • {len(st.session_state.results)} analyzed")
 
 
 if __name__ == "__main__":
